@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
+#include "spi.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -33,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SAMPLES 1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,7 +46,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+volatile uint16_t spi_rx_buffer[SAMPLES];
+volatile int spi_rx_first_half_ready = 0;
+volatile int spi_rx_second_half_ready = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,8 +91,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+  // Initialize SPI with DMA
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)spi_rx_buffer, SAMPLES);
 
   /* USER CODE END 2 */
 
@@ -96,8 +104,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-    HAL_Delay(1000);
+    if (spi_rx_first_half_ready == 1) {
+      // First reset the flag
+      spi_rx_first_half_ready = 0;
+
+      // Processing steps should be done here
+
+      // Transmit the processed data via UART2
+      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[0], (SAMPLES / 2) * sizeof(uint16_t));
+    }
+
+    if (spi_rx_second_half_ready == 1) {
+      // First reset the flag
+      spi_rx_second_half_ready = 0;
+
+      // Processing steps should be done here
+      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+      // Transmit the processed data via UART2
+      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[SAMPLES / 2], (SAMPLES / 2) * sizeof(uint16_t));
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -137,7 +162,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 16;
+  RCC_OscInitStruct.PLL.PLLN = 40;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -155,7 +180,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -166,6 +191,21 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_SPI_RxHalfCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  // First half of rx buffer filled, flag will be set to 1 so data can be processed further.
+  // Data processing is not done here to keep ISR as short as possible
+  spi_rx_first_half_ready = 1;
+}
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  // Second half of rx buffer filled, flag will be set to 1 so data can be processed further.
+  // Data processing is not done here to keep ISR as short as possible
+  spi_rx_second_half_ready = 1;
+}
+
 
 /* USER CODE END 4 */
 
