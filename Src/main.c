@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,6 +36,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLES 1000
+#define WINDOW_SIZE 5
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +50,16 @@
 volatile uint16_t spi_rx_buffer[SAMPLES];
 volatile int spi_rx_first_half_ready = 0;
 volatile int spi_rx_second_half_ready = 0;
+
+//Moving Average Stuff
+volatile uint16_t window[WINDOW_SIZE];
+volatile uint16_t processing_buffer_1[SAMPLES/2];
+volatile uint16_t processed_buffer_1[SAMPLES/2];
+volatile uint16_t processing_buffer_2[SAMPLES/2];
+volatile uint16_t processed_buffer_2[SAMPLES/2];
+volatile int sum = 0;
+volatile int counter = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,9 +77,7 @@ void SystemClock_Config(void);
   * @brief  The application entry point.
   * @retval int
   */
-int main(void)
-{
-
+int main(void) {
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -107,29 +116,68 @@ int main(void)
     if (spi_rx_first_half_ready == 1) {
       // First reset the flag
       spi_rx_first_half_ready = 0;
-
+      sum = 0;
+      counter = 0;
+      memset(window, 0, sizeof(window));
+      memcpy(processing_buffer_1, spi_rx_buffer, (SAMPLES / 2) * sizeof(uint16_t));
       // Processing steps should be done here
+      for (int i = 0; i < SAMPLES / 2; i++) {
+        if (i < WINDOW_SIZE) {
+          window[i] = processing_buffer_1[i];
+          sum += window[i];
+          processed_buffer_1[i] = sum / (i + 1); // Calculate average with increasing window size
+        } else {
+          sum -= window[counter];
+          window[counter] = processing_buffer_1[i];
+          sum += window[counter];
+          processed_buffer_1[i] = sum / WINDOW_SIZE; // Steady-state moving average
+          counter++;
+          if (counter == WINDOW_SIZE) {
+            counter = 0;
+          }
+        }
+      }
 
       // Transmit the processed data via UART2
-      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[0], (SAMPLES / 2) * sizeof(uint16_t));
+      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&processed_buffer_1, (SAMPLES / 2) * sizeof(uint16_t));
+      // Consider if you need to wait for transmission to complete before the next SPI reception
     }
 
     if (spi_rx_second_half_ready == 1) {
       // First reset the flag
       spi_rx_second_half_ready = 0;
-
+      sum = 0;
+      counter = 0;
+      memset(window, 0, sizeof(window));
+      // Corrected memcpy for the second half
+      memcpy(processing_buffer_2, &spi_rx_buffer[SAMPLES / 2], (SAMPLES / 2) * sizeof(uint16_t));
       // Processing steps should be done here
+      for (int i = 0; i < SAMPLES / 2; i++) {
+        if (i < WINDOW_SIZE) {
+          window[i] = processing_buffer_2[i];
+          sum += window[i];
+          processed_buffer_2[i] = sum / (i + 1); // Calculate average with increasing window size
+        } else {
+          sum -= window[counter];
+          window[counter] = processing_buffer_2[i];
+          sum += window[counter];
+          processed_buffer_2[i] = sum / WINDOW_SIZE; // Steady-state moving average
+          counter++;
+          if (counter == WINDOW_SIZE) {
+            counter = 0;
+          }
+        }
+      }
       HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
       // Transmit the processed data via UART2
-      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[SAMPLES / 2], (SAMPLES / 2) * sizeof(uint16_t));
+      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&processed_buffer_2, (SAMPLES / 2) * sizeof(uint16_t));
+      // Consider if you need to wait for transmission to complete before the next SPI reception
     }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
-  /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
