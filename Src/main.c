@@ -20,12 +20,13 @@
 #include "main.h"
 #include "dma.h"
 #include "spi.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,6 +37,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLES 1000
+#define WINDOW_SIZE 2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,12 +51,39 @@
 volatile uint16_t spi_rx_buffer[SAMPLES];
 volatile int spi_rx_first_half_ready = 0;
 volatile int spi_rx_second_half_ready = 0;
+
+
+//Moving Average Stuff
+volatile uint16_t window[WINDOW_SIZE];
+volatile uint16_t processing_buffer_1[SAMPLES/2];
+volatile uint16_t processed_buffer_1[SAMPLES/2];
+volatile uint16_t processing_buffer_2[SAMPLES/2];
+volatile uint16_t processed_buffer_2[SAMPLES/2];
+volatile uint32_t sum = 0;
+volatile int window_index = 0;
+
+// Buffers for downsampled data
+volatile uint8_t downsampled_buffer_1[SAMPLES/2];
+volatile uint8_t downsampled_buffer_2[SAMPLES/2];
+
+// Ultrasonic
+uint16_t count_1 = 0;
+uint16_t count_2 = 0;
+float min_distance = 10; // unit: cm
+float distance = 0; // unit: cm
+int flag = 0;
+int spi_tx_flag = 0;
+
+uint8_t UART2_rxBuffer[12] = {0};
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void delay_uS(uint16_t delay);
+void HCSR04_Read();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -94,8 +123,17 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
+  MX_TIM1_Init();
+  MX_TIM6_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   // Initialize SPI with DMA
+
+  //Timer to count to 10ms
+  HAL_TIM_Base_Start(&htim6);
+  HAL_TIM_IC_Start_IT(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_Base_Start_IT(&htim7);
+
   HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)spi_rx_buffer, SAMPLES);
 
   /* USER CODE END 2 */
@@ -105,23 +143,90 @@ int main(void)
   while (1)
   {
     if (spi_rx_first_half_ready == 1) {
-      // First reset the flag
+      // First, reset the flag
+
       spi_rx_first_half_ready = 0;
+      sum = 0;
+      window_index = 0;
+      // Copy the data first
+      memcpy(processing_buffer_1, spi_rx_buffer, (SAMPLES / 2) * sizeof(uint16_t));
 
       // Processing steps should be done here
+      // Initial window fill
+      // Reference for moving average
+
+
+      for (int i = 0; i < WINDOW_SIZE; i++) {
+        window[i] = processing_buffer_1[i];
+        sum += window[i];
+        processed_buffer_1[i] = sum / (i + 1);
+      }
+
+      // Process remaining samples
+      for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        sum -= window[window_index];
+        window[window_index] = processing_buffer_1[i];
+        sum += window[window_index];
+        processed_buffer_1[i] = sum / WINDOW_SIZE;
+        window_index = (window_index + 1 == WINDOW_SIZE) ? 0 : window_index + 1;
+      }
+
+      // DOWNSAMPLING
+      for (int i = 0; i < SAMPLES/2; i++) {
+        // Shift the data by 4 bits to the right to conserve MSB and get rid of the LSB
+        downsampled_buffer_1[i] = (uint8_t)(processed_buffer_1[i] >> 4);
+      }
+
+
 
       // Transmit the processed data via UART2
-      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[0], (SAMPLES / 2) * sizeof(uint16_t));
+      if (spi_tx_flag == 1) {
+        HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_1, (SAMPLES / 2));
+      }
+      // Consider if you need to wait for transmission to complete before the next SPI reception
     }
 
     if (spi_rx_second_half_ready == 1) {
-      // First reset the flag
+      // First, reset the flag
       spi_rx_second_half_ready = 0;
+      sum = 0;
+      window_index = 0;
+
+      // Copy over the second half of the data
+      memcpy(processing_buffer_2, &spi_rx_buffer[SAMPLES / 2], (SAMPLES / 2) * sizeof(uint16_t));
 
       // Processing steps should be done here
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-      // Transmit the processed data via UART2
-      HAL_UART_Transmit_IT(&huart2, (uint8_t*)&spi_rx_buffer[SAMPLES / 2], (SAMPLES / 2) * sizeof(uint16_t));
+      // Initial window fill
+      for (int i = 0; i < WINDOW_SIZE; i++) {
+        window[i] = processing_buffer_2[i];
+        sum += window[i];
+        processed_buffer_2[i] = sum / (i + 1);
+      }
+      // Process remaining samples
+      for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        sum -= window[window_index];
+        window[window_index] = processing_buffer_2[i];
+        sum += window[window_index];
+        processed_buffer_2[i] = sum / WINDOW_SIZE;
+        window_index = (window_index + 1 == WINDOW_SIZE) ? 0 : window_index + 1;
+      }
+
+
+      // DOWNSAMPLING
+      for (int i = 0; i < SAMPLES/2; i++) {
+        // Shift the data by 4 bits to the right to conserve MSB and get rid of the LSB
+        downsampled_buffer_2[i] = (uint8_t)(processed_buffer_2[i] >> 4);
+      }
+
+
+      //HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+      // Transmit the processed data via UART2-++
+      if (spi_tx_flag == 1) {
+        HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_2, (SAMPLES / 2));
+      }
+
+      // Consider if you need to wait for transmission to complete before the next SPI reception
+
     }
     /* USER CODE END WHILE */
 
@@ -204,6 +309,53 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
   // Second half of rx buffer filled, flag will be set to 1 so data can be processed further.
   // Data processing is not done here to keep ISR as short as possible
   spi_rx_second_half_ready = 1;
+}
+
+
+// ULTRASONIC
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
+  if (htim == &htim7) {
+    HCSR04_Read();
+    if (distance < min_distance) {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+      spi_tx_flag = 1;
+    } else {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+      spi_tx_flag = 0;
+    }
+  }
+}
+
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+
+  if ((htim == &htim1) && (htim->Channel == 1)) {
+    if (flag == 0) {
+      count_1 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
+      flag = 1;
+    }
+    else {
+      count_2 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
+      __HAL_TIM_SET_COUNTER(htim, 0);
+      distance = (count_2 - count_1) / 58.0;
+      flag = 0;
+    }
+  }
+}
+
+void delay_uS(uint16_t delay)
+{
+  __HAL_TIM_SET_COUNTER(&htim6, 0);
+  while(__HAL_TIM_GET_COUNTER(&htim6) < delay) {
+
+  }
+}
+
+void HCSR04_Read() {
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+  delay_uS(10);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
 }
 
 
