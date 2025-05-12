@@ -26,6 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -166,8 +167,22 @@ int main(void)
 
       // Process remaining samples
       for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        // Get current sample
+        uint16_t current_sample = processing_buffer_1[i];
+
+        // Calculate mean of current window
+        uint16_t window_mean = sum / WINDOW_SIZE;
+
+        // Check if current sample is an outlier (using threshold)
+        uint16_t threshold = (window_mean * 85) / 100; // Adjust as needed
+
+        if (abs(current_sample - window_mean) > threshold) {
+          // Replace outlier with the current window mean
+          current_sample = window_mean;
+        }
+
         sum -= window[window_index];
-        window[window_index] = processing_buffer_1[i];
+        window[window_index] = current_sample;
         sum += window[window_index];
         processed_buffer_1[i] = sum / WINDOW_SIZE;
         window_index = (window_index + 1 == WINDOW_SIZE) ? 0 : window_index + 1;
@@ -206,8 +221,22 @@ int main(void)
       }
       // Process remaining samples
       for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        // Get current sample
+        uint16_t current_sample = processing_buffer_2[i];
+
+        // Calculate mean of current window
+        uint16_t window_mean = sum / WINDOW_SIZE;
+
+        // Check if current sample is an outlier (using threshold)
+        uint16_t threshold = (window_mean * 85) / 100; // Adjust as needed
+
+        if (abs(current_sample - window_mean) > threshold) {
+          // Replace outlier with the current window mean
+          current_sample = window_mean;
+        }
+
         sum -= window[window_index];
-        window[window_index] = processing_buffer_2[i];
+        window[window_index] = current_sample;
         sum += window[window_index];
         processed_buffer_2[i] = sum / WINDOW_SIZE;
         window_index = (window_index + 1 == WINDOW_SIZE) ? 0 : window_index + 1;
