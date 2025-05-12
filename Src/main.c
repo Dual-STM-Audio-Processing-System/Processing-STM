@@ -38,6 +38,7 @@
 /* USER CODE BEGIN PD */
 #define SAMPLES 1000
 #define WINDOW_SIZE 2
+#define PC_RX_BUFFER 8
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -74,8 +75,8 @@ float distance = 0; // unit: cm
 int flag = 0;
 int spi_tx_flag = 0;
 
-uint8_t UART2_rxBuffer[12] = {0};
-
+uint8_t UART2_rxBuffer[PC_RX_BUFFER] = {0};
+volatile int ultrasonic_mode = 0;
 
 /* USER CODE END PV */
 
@@ -135,6 +136,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim7);
 
   HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)spi_rx_buffer, SAMPLES);
+  HAL_UARTEx_ReceiveToIdle_IT(&huart2, UART2_rxBuffer, PC_RX_BUFFER);
 
   /* USER CODE END 2 */
 
@@ -180,7 +182,7 @@ int main(void)
 
 
       // Transmit the processed data via UART2
-      if (spi_tx_flag == 1) {
+      if (ultrasonic_mode == 0 || (ultrasonic_mode == 1 && spi_tx_flag == 1)) {
         HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_1, (SAMPLES / 2));
       }
       // Consider if you need to wait for transmission to complete before the next SPI reception
@@ -221,11 +223,10 @@ int main(void)
 
       //HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
       // Transmit the processed data via UART2-++
-      if (spi_tx_flag == 1) {
+      if (ultrasonic_mode == 0 || (ultrasonic_mode == 1 && spi_tx_flag == 1)) {
         HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_2, (SAMPLES / 2));
       }
 
-      // Consider if you need to wait for transmission to complete before the next SPI reception
 
     }
     /* USER CODE END WHILE */
@@ -356,6 +357,28 @@ void HCSR04_Read() {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
   delay_uS(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+  if (huart->Instance == USART2) {
+    if (Size > 0) {
+      if (UART2_rxBuffer[0] == '1' && UART2_rxBuffer[1] == 'U' && UART2_rxBuffer[2] == ' ') {
+        int value = 0;
+        for (int i = 3; i < Size && UART2_rxBuffer[i] >= '0' && UART2_rxBuffer[i] <= '9'; i++) {
+          value = value * 10 + (UART2_rxBuffer[i] - '0'); // This is just an easy way to convert the ascii into an actual integer
+        }
+        if (value > 0) {
+          min_distance = (float)value;
+          ultrasonic_mode = 1;
+        }
+      }
+      if (UART2_rxBuffer[0] == '2' && UART2_rxBuffer[1] == 'U') {
+        ultrasonic_mode = 0;
+      }
+    }
+    HAL_UARTEx_ReceiveToIdle_IT(huart, UART2_rxBuffer, PC_RX_BUFFER);
+  }
 }
 
 
