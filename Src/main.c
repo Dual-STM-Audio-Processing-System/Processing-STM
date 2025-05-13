@@ -38,7 +38,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLES 1000
-#define WINDOW_SIZE 2
+#define WINDOW_SIZE 3
 #define PC_RX_BUFFER 8
 #define OUTLIER_THRESHOLD 85
 #define DEFAULT_DISTANCE 10
