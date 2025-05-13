@@ -38,9 +38,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SAMPLES 1000
-#define WINDOW_SIZE 2
+#define WINDOW_SIZE 3
 #define PC_RX_BUFFER 8
 #define OUTLIER_THRESHOLD 85
+#define DEFAULT_DISTANCE 10
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -72,7 +73,7 @@ volatile uint8_t downsampled_buffer_2[SAMPLES/2];
 // Ultrasonic
 uint16_t count_1 = 0;
 uint16_t count_2 = 0;
-float min_distance = 10; // unit: cm
+float min_distance = DEFAULT_DISTANCE; // unit: cm
 float distance = 0; // unit: cm
 int flag = 0;
 int spi_tx_flag = 0;
@@ -388,9 +389,9 @@ void delay_uS(uint16_t delay)
 }
 
 void HCSR04_Read() {
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   delay_uS(10);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -408,6 +409,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
         }
       }
       if (UART2_rxBuffer[0] == '2' && UART2_rxBuffer[1] == 'U') {
+        min_distance = DEFAULT_DISTANCE;
         ultrasonic_mode = 0;
       }
     }
