@@ -40,6 +40,7 @@
 #define SAMPLES 1000
 #define WINDOW_SIZE 2
 #define PC_RX_BUFFER 8
+#define OUTLIER_THRESHOLD 85
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -160,6 +161,7 @@ int main(void)
 
 
       for (int i = 0; i < WINDOW_SIZE; i++) {
+        processing_buffer_1[i] = processing_buffer_1[i] << 4;
         window[i] = processing_buffer_1[i];
         sum += window[i];
         processed_buffer_1[i] = sum / (i + 1);
@@ -167,6 +169,7 @@ int main(void)
 
       // Process remaining samples
       for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        processing_buffer_1[i] = processing_buffer_1[i] << 4;
         // Get current sample
         uint16_t current_sample = processing_buffer_1[i];
 
@@ -174,7 +177,7 @@ int main(void)
         uint16_t window_mean = sum / WINDOW_SIZE;
 
         // Check if current sample is an outlier (using threshold)
-        uint16_t threshold = (window_mean * 85) / 100; // Adjust as needed
+        uint16_t threshold = (window_mean * OUTLIER_THRESHOLD) / 100; // Adjust as needed
 
         if (abs(current_sample - window_mean) > threshold) {
           // Replace outlier with the current window mean
@@ -191,7 +194,7 @@ int main(void)
       // DOWNSAMPLING
       for (int i = 0; i < SAMPLES/2; i++) {
         // Shift the data by 4 bits to the right to conserve MSB and get rid of the LSB
-        downsampled_buffer_1[i] = (uint8_t)(processed_buffer_1[i] >> 4);
+        downsampled_buffer_1[i] = (uint8_t)(((uint32_t)processed_buffer_1[i] * 255) / 65535);
       }
 
 
@@ -215,12 +218,14 @@ int main(void)
       // Processing steps should be done here
       // Initial window fill
       for (int i = 0; i < WINDOW_SIZE; i++) {
+        processing_buffer_2[i] = processing_buffer_2[i] << 4;
         window[i] = processing_buffer_2[i];
         sum += window[i];
         processed_buffer_2[i] = sum / (i + 1);
       }
       // Process remaining samples
       for (int i = WINDOW_SIZE; i < SAMPLES/2; i++) {
+        processing_buffer_2[i] = processing_buffer_2[i] << 4;
         // Get current sample
         uint16_t current_sample = processing_buffer_2[i];
 
@@ -228,7 +233,7 @@ int main(void)
         uint16_t window_mean = sum / WINDOW_SIZE;
 
         // Check if current sample is an outlier (using threshold)
-        uint16_t threshold = (window_mean * 85) / 100; // Adjust as needed
+        uint16_t threshold = (window_mean * OUTLIER_THRESHOLD) / 100; // Adjust as needed
 
         if (abs(current_sample - window_mean) > threshold) {
           // Replace outlier with the current window mean
@@ -246,7 +251,7 @@ int main(void)
       // DOWNSAMPLING
       for (int i = 0; i < SAMPLES/2; i++) {
         // Shift the data by 4 bits to the right to conserve MSB and get rid of the LSB
-        downsampled_buffer_2[i] = (uint8_t)(processed_buffer_2[i] >> 4);
+        downsampled_buffer_2[i] = downsampled_buffer_2[i] = (uint8_t)(((uint32_t)processed_buffer_2[i] * 255) / 65535);
       }
 
 
