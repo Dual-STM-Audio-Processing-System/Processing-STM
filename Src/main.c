@@ -26,6 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -129,7 +130,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM1_Init();
   MX_TIM6_Init();
-  MX_TIM7_Init();
+  //MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   // Initialize SPI with DMA
 
@@ -202,7 +203,8 @@ int main(void)
 
       // Transmit the processed data via UART2
       if (ultrasonic_mode == 0 || (ultrasonic_mode == 1 && spi_tx_flag == 1)) {
-        HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_1, (SAMPLES / 2));
+        //HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_1, (SAMPLES / 2));
+        HAL_UART_Transmit_DMA(&huart2, (uint8_t*)downsampled_buffer_1, (SAMPLES / 2));
       }
       // Consider if you need to wait for transmission to complete before the next SPI reception
     }
@@ -252,15 +254,47 @@ int main(void)
       // DOWNSAMPLING
       for (int i = 0; i < SAMPLES/2; i++) {
         // Shift the data by 4 bits to the right to conserve MSB and get rid of the LSB
-        downsampled_buffer_2[i] = downsampled_buffer_2[i] = (uint8_t)(((uint32_t)processed_buffer_2[i] * 255) / 65535);
+        downsampled_buffer_2[i] = (uint8_t)(((uint32_t)processed_buffer_2[i] * 255) / 65535);
       }
 
 
       //HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
       // Transmit the processed data via UART2-++
       if (ultrasonic_mode == 0 || (ultrasonic_mode == 1 && spi_tx_flag == 1)) {
-        HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_2, (SAMPLES / 2));
+        //HAL_UART_Transmit_IT(&huart2, (uint8_t*)&downsampled_buffer_2, (SAMPLES / 2));
+        HAL_UART_Transmit_DMA(&huart2, (uint8_t*)downsampled_buffer_2, (SAMPLES / 2));
       }
+
+
+
+
+      // ULTRASONIC
+      // Static variables to control ultrasonic timing
+      static uint32_t last_ultrasonic_time = 0;
+      uint32_t current_time = HAL_GetTick();
+
+      // Read ultrasonic every 500ms (or whatever interval you prefer)
+      if (current_time - last_ultrasonic_time >= 500) {
+        last_ultrasonic_time = current_time;
+
+        // Trigger ultrasonic measurement
+        HCSR04_Read();
+
+        // Format and transmit distance (if desired)
+        // char distance_str[16];
+        // int len = sprintf(distance_str, "D:%0.1f\r\n", distance);
+        //  HAL_UART_Transmit_IT(&huart2, (uint8_t*)distance_str, len);
+
+        // Update LED and flags based on distance
+        if (distance < min_distance) {
+          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+          spi_tx_flag = 1;
+        } else {
+          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+          spi_tx_flag = 0;
+        }
+      }
+
 
 
     }
@@ -350,20 +384,20 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 
 // ULTRASONIC
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
-  if (htim == &htim7) {
-    HCSR04_Read();
-    if (distance < min_distance) {
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
-      spi_tx_flag = 1;
-    } else {
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
-      spi_tx_flag = 0;
-    }
-  }
-}
+// void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
+//   if (htim == &htim7) {
+//     HCSR04_Read();
+//     if (distance < min_distance) {
+//       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+//       spi_tx_flag = 1;
+//     } else {
+//       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+//       spi_tx_flag = 0;
+//     }
+//   }
+// }
 
-
+char distance_str[40];
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 
   if ((htim == &htim1) && (htim->Channel == 1)) {
